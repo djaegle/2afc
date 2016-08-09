@@ -9,13 +9,23 @@ of patent rights can be found in the PATENTS file in the same directory.
 
 --torch.setdefaulttensortype('torch.FloatTensor')
 
+--TODO: Abstract the net architectures here to allow for arbitrary structures
+--TODO: generalize training procedure to pairs of images for siamese 2AFC training
+--TODO: add augmentation stuff from the 2012 Ciresan et al paper (if we want SOA performance)
+--TODO: given a batch, figure out which pairs of images to use for the comparison. Basically, the siamese thing only requires
+-- across-image comparisons at the very end.
+
 -- load torchnet:
 local tnt = require 'torchnet'
 local debugger = require('fb.debugger')
 
+local architectures = require('../utils/architectures')
+local weight_init = require('../utils/weight-init')
+
 -- use GPU or not:
 local cmd = torch.CmdLine()
 cmd:option('-usegpu', false, 'use gpu for training')
+cmd:option('-perm_invar', false, 'permutation invariant: reshape to 1d')
 local config = cmd:parse(arg)
 print(string.format('running on %s', config.usegpu and 'GPU' or 'CPU'))
 
@@ -31,11 +41,13 @@ local function getIterator(mode)
          local dataset = mnist[mode .. 'dataset']()
 
          -- Make images 1d
-         dataset.data = dataset.data:reshape(dataset.data:size(1),
-            dataset.data:size(2) * dataset.data:size(3)):double()
+         if config.perm_invar then
+            dataset.data = dataset.data:reshape(dataset.data:size(1),
+               dataset.data:size(2) * dataset.data:size(3)):double()
+         end
 
          -- Duplicate labels as doubles for regression
-         --dataset.intlabel = torch.Tensor(dataset.label:size()):copy(dataset.label)
+         dataset.intlabel = torch.FloatTensor(dataset.label:size()):copy(dataset.label)
 
          -- return batches of data:
          return tnt.BatchDataset{
@@ -43,8 +55,16 @@ local function getIterator(mode)
             dataset = tnt.ListDataset{  -- replace this by your own dataset
                list = torch.range(1, dataset.data:size(1)):long(),
                load = function(idx)
+
+               local input
+               if config.perm_invar then
+                  input = dataset.data[idx]
+               else
+                  input = dataset.data[{{idx},{},{}}]
+               end
                   return {
-                     input  = dataset.data[idx],
+                     -- input  = dataset.data[idx],
+                     input = input,
                      target = torch.LongTensor{dataset.label[idx] + 1},
                   }  -- sample contains input and target
                end,
@@ -55,13 +75,19 @@ local function getIterator(mode)
 end
 
 -- set up logistic regressor:
-local net = nn.Sequential():add(nn.Linear(784,10))
+-- local net = architectures.Cir2010_4_ReLU(784,10)
+local net = architectures.Wan2013_CNN(1,10,28)
+-- debugger.enter()
+-- local net = nn.Sequential():add(nn.Linear(784,10)) -- dummy test one
+
+net = weight_init(net,'kaiming')
+
 local criterion = nn.CrossEntropyCriterion()
 
 -- set up training engine:
 local engine = tnt.SGDEngine()
-local meter  = tnt.AverageValueMeter()
-local clerr  = tnt.ClassErrorMeter{topk = {1}}
+local meter  = tnt.AverageValueMeter() -- Low better
+local clerr  = tnt.ClassErrorMeter{topk = {1}} -- Low better
 engine.hooks.onStartEpoch = function(state)
    meter:reset()
    clerr:reset()
@@ -98,7 +124,7 @@ engine:train{
    network   = net,
    iterator  = getIterator('train'),
    criterion = criterion,
-   lr        = 0.2,
+   lr        = 0.01,
    maxepoch  = 5,
 }
 
