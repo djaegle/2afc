@@ -7,13 +7,26 @@ LICENSE file in the root directory of this source tree. An additional grant
 of patent rights can be found in the PATENTS file in the same directory.
 ]]--
 
---torch.setdefaulttensortype('torch.FloatTensor')
+torch.setdefaulttensortype('torch.FloatTensor')
 
 --TODO: generalize training procedure to pairs of images for siamese 2AFC training
-   -- TODO: remove note for Metacurriculum learning project
-
 --TODO: given a batch, figure out which pairs of images to use for the comparison. Basically, the siamese thing only requires
 -- across-image comparisons at the very end.
+   -- TODO: remove notes for Metacurriculum learning project
+
+-- TODO: Implement metacurriculum learning strategies:
+   -- (1) RL algorithms using validation loss
+   -- (2) simple deterministic learned robust loss: E(w(L)), with weighting function w(L,class,f(img))
+   -- (2a) more sophisticated version using reparameterization trick and ensuring balanced sets
+   -- Others?
+
+-- TODO: add network/state save functionality
+
+-- TODO: add general optim support instead of just vanilla SGD
+
+-- TODO: add hooks for better hyperparameter schedules
+
+-- TODO: add hooks for more validation
 
 -- load torchnet:
 local tnt = require 'torchnet'
@@ -33,6 +46,7 @@ cmd:option('-maxepoch', 5, 'Maximum number of epochs to run')
 cmd:option('-batchsize',128, 'Batch size')
 cmd:option('-augMode','','Data augmentation mode')
 cmd:option('-normMode','mnistZeroMean','Input data normalization')
+cmd:option('-metaMode','','Metacurriculum learning mode')
 local config = cmd:parse(arg)
 print(string.format('running on %s', config.usegpu and 'GPU' or 'CPU'))
 
@@ -40,7 +54,6 @@ print(string.format('running on %s', config.usegpu and 'GPU' or 'CPU'))
 local function getIterator(mode)
    return tnt.ParallelDatasetIterator{
       nthread = 1,
-      -- transform = GetTransforms(config.transformMode), -- Use tnt.TransformDataset instead of this
       init    = function() require 'torchnet' end,
       closure = function() -- will repeatedly call dataset:get()
 
@@ -98,7 +111,7 @@ local function getIterator(mode)
 end
 
 -- set up logistic regressor:
-local xDim = 28 -- Note, will be 24x24 for Wan2013
+local xDim = 28 -- TODO: make flexible for cropping, as in 24x24 for Wan2013
 local nLabels = 10
 local nImChans = 1
 local net
@@ -145,7 +158,7 @@ if config.usegpu then
       tgpu:resize(state.sample.target:size()):copy(state.sample.target)
       state.sample.input  = igpu
       state.sample.target = tgpu
-   end  -- alternatively, this logic can be implemented via a TransformDataset
+   end
 end
 
 -- train the model:
