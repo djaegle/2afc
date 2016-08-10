@@ -54,17 +54,15 @@ local function getIterator(mode)
          end
 
          -- Duplicate labels as doubles for regression
-         dataset.intlabel = torch.FloatTensor(dataset.label:size()):copy(dataset.label)
+         --dataset.intlabel = torch.FloatTensor(dataset.label:size()):copy(dataset.label)
 
          -- return batches of data:
          return tnt.BatchDataset{
             batchsize = config.batchsize, -- Can get this > 10k with no trouble
             dataset = tnt.TransformDataset { -- apply transform closure
                transform = function(sample)
-                  -- inputTransform = inputTransform()
-                  -- print(torch.mean(sample.input))
                   return {
-                     input = sample.input/127.5 - 1, -- a stupid test
+                     input = sample.input/127.5 - 1, -- TODO: abstract this to allow other preprocessing
                      target = sample.target,
                   }
                end, -- closure for transformation
