@@ -11,7 +11,7 @@ of patent rights can be found in the PATENTS file in the same directory.
 
 --TODO: Abstract the net architectures here to allow for arbitrary structures
 --TODO: generalize training procedure to pairs of images for siamese 2AFC training
---TODO: add augmentation stuff from the 2012 Ciresan et al paper (if we want SOA performance)
+--TODO: add augmentation stuff from the 2012 Ciresan et al paper (if we want SOTA performance)
 --TODO: given a batch, figure out which pairs of images to use for the comparison. Basically, the siamese thing only requires
 -- across-image comparisons at the very end.
 
@@ -22,10 +22,14 @@ local debugger = require('fb.debugger')
 local architectures = require('../utils/architectures')
 local weight_init = require('../utils/weight-init')
 
--- use GPU or not:
+-- Command line options
 local cmd = torch.CmdLine()
 cmd:option('-usegpu', false, 'use gpu for training')
 cmd:option('-perm_invar', false, 'permutation invariant: reshape to 1d')
+cmd:option('-lr', 0.01, 'learning rate')
+cmd:option('-mu', 0.0, 'SGD Momentum') -- Set to zero for the moment
+cmd:option('-maxepoch', 5, 'Maximum number of epochs to run')
+cmd:option('-batchsize',128, 'Batch size')
 local config = cmd:parse(arg)
 print(string.format('running on %s', config.usegpu and 'GPU' or 'CPU'))
 
@@ -33,8 +37,9 @@ print(string.format('running on %s', config.usegpu and 'GPU' or 'CPU'))
 local function getIterator(mode)
    return tnt.ParallelDatasetIterator{
       nthread = 1,
+      -- transform = GetTransforms(config.transformMode), -- Use tnt.TransformDataset instead of this
       init    = function() require 'torchnet' end,
-      closure = function()
+      closure = function() -- will repeatedly call dataset:get()
 
          -- load MNIST dataset:
          local mnist = require 'mnist'
@@ -43,7 +48,9 @@ local function getIterator(mode)
          -- Make images 1d
          if config.perm_invar then
             dataset.data = dataset.data:reshape(dataset.data:size(1),
-               dataset.data:size(2) * dataset.data:size(3)):double()
+               dataset.data:size(2) * dataset.data:size(3)):float()
+         else
+            dataset.data = dataset.data:float()
          end
 
          -- Duplicate labels as doubles for regression
@@ -51,23 +58,34 @@ local function getIterator(mode)
 
          -- return batches of data:
          return tnt.BatchDataset{
-            batchsize = 128,
-            dataset = tnt.ListDataset{  -- replace this by your own dataset
-               list = torch.range(1, dataset.data:size(1)):long(),
-               load = function(idx)
-
-               local input
-               if config.perm_invar then
-                  input = dataset.data[idx]
-               else
-                  input = dataset.data[{{idx},{},{}}]
-               end
+            batchsize = config.batchsize, -- Can get this > 10k with no trouble
+            dataset = tnt.TransformDataset { -- apply transform closure
+               transform = function(sample)
+                  -- inputTransform = inputTransform()
+                  -- print(torch.mean(sample.input))
                   return {
-                     -- input  = dataset.data[idx],
-                     input = input,
-                     target = torch.LongTensor{dataset.label[idx] + 1},
-                  }  -- sample contains input and target
-               end,
+                     input = sample.input/127.5 - 1, -- a stupid test
+                     target = sample.target,
+                  }
+               end, -- closure for transformation
+               dataset = tnt.ShuffleDataset { -- Always shuffle w/ replacement each epoch
+                  dataset = tnt.ListDataset{  -- replace this by your own dataset
+                     list = torch.range(1, dataset.data:size(1)):long(),
+                     load = function(idx)
+
+                     local input
+                     if config.perm_invar then
+                        input = dataset.data[idx]
+                     else
+                        input = dataset.data[{{idx},{},{}}]
+                     end
+                        return {
+                           input = input,
+                           target = torch.LongTensor{dataset.label[idx] + 1},
+                        }  -- sample contains input and target
+                     end,
+                  }
+               }
             }
          }
       end,
@@ -75,10 +93,15 @@ local function getIterator(mode)
 end
 
 -- set up logistic regressor:
--- local net = architectures.Cir2010_4_ReLU(784,10)
-local net = architectures.Wan2013_CNN(1,10,28)
--- debugger.enter()
--- local net = nn.Sequential():add(nn.Linear(784,10)) -- dummy test one
+local xDim = 28
+local nLabels = 10
+local nImChans = 1
+local net
+if config.perm_invar then
+   net = architectures.Cir2010_4_ReLU(xDim^2,nLabels)
+else
+   net = architectures.Wan2013_CNN(nImChans,nLabels,xDim)
+end
 
 net = weight_init(net,'kaiming')
 
@@ -89,6 +112,7 @@ local engine = tnt.SGDEngine()
 local meter  = tnt.AverageValueMeter() -- Low better
 local clerr  = tnt.ClassErrorMeter{topk = {1}} -- Low better
 engine.hooks.onStartEpoch = function(state)
+   -- Add epoch-wise evaluation here.
    meter:reset()
    clerr:reset()
 end
@@ -124,8 +148,8 @@ engine:train{
    network   = net,
    iterator  = getIterator('train'),
    criterion = criterion,
-   lr        = 0.01,
-   maxepoch  = 5,
+   lr        = config.lr,
+   maxepoch  = config.maxepoch,
 }
 
 -- measure test loss and error:

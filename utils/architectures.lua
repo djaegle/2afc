@@ -25,6 +25,11 @@ architectures = {}
 -- Cir2012: Ciresan et al 2012 - Multi-column Deep Neural Networks for Image Classification
 -- Wan2013: Wan et al - Regularization of Neural Networks using DropConnect
 
+function architectures.linearDemo(nIn,nOut)
+   -- A simple one-layer linear perceptron, used in the original MNIST demo.
+   return nn.Sequential():add(nn.Linear(nIn,nOut))
+end
+
 function architectures.Cir2010_4(imsize,noutputs,opt)
    -- Permutation invariant architecture.
    -- TODO: finish implementation
