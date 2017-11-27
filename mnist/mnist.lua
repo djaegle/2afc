@@ -14,12 +14,6 @@ torch.setdefaulttensortype('torch.FloatTensor')
 -- across-image comparisons at the very end.
    -- TODO: remove notes for Metacurriculum learning project
 
--- TODO: Implement metacurriculum learning strategies:
-   -- (1) RL algorithms using validation loss
-   -- (2) simple deterministic learned robust loss: E(w(L)), with weighting function w(L,class,f(img))
-   -- (2a) more sophisticated version using reparameterization trick and ensuring balanced sets
-   -- Others?
-
 -- TODO: add network/state save functionality
 
 -- TODO: add general optim support instead of just vanilla SGD
@@ -46,7 +40,6 @@ cmd:option('-maxepoch', 5, 'Maximum number of epochs to run')
 cmd:option('-batchsize',128, 'Batch size')
 cmd:option('-augMode','','Data augmentation mode')
 cmd:option('-normMode','mnistZeroMean','Input data normalization')
-cmd:option('-metaMode','','Metacurriculum learning mode')
 local config = cmd:parse(arg)
 print(string.format('running on %s', config.usegpu and 'GPU' or 'CPU'))
 
